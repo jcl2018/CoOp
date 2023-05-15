@@ -139,9 +139,13 @@ def main(args):
     print("Collecting env info ...")
     print("** System info **\n{}\n".format(collect_env_info()))
 
+    # For zero shot it would be in trainers/zsclip.py
+    # Initialize a trainer (dataset, model, evaluator, ...)
+    # See SimpleTrainer::__init__
     trainer = build_trainer(cfg)
 
     if args.eval_only:
+        # See  dassl.engine.trainer.TrainerBase.load_model
         trainer.load_model(args.model_dir, epoch=args.load_epoch)
         trainer.test()
         return
