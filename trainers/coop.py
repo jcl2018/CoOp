@@ -76,7 +76,7 @@ class TextEncoder(nn.Module):
         attention_mask[:, : 20] = 1.0
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2) # 100 x 1 x 1 x 512
         extended_attention_mask = extended_attention_mask.to(dtype=next(self.transformer.parameters()).dtype) # fp16 compatibility
-        extended_attention_mask = (1.0 - extended_attention_mask) * -1.0
+        extended_attention_mask = (1.0 - extended_attention_mask) * -100000.0
         # head_mask = [None] * 12
 
         x = self.transformer(x, attention_mask=extended_attention_mask)[0]  # LND
