@@ -18,6 +18,7 @@ from cn_clip.clip.bert_tokenizer import FullTokenizer as _Tokenizer
 
 _tokenizer = _Tokenizer()
 
+
 # def load_clip_to_cpu(cfg):
 #     backbone_name = cfg.MODEL.BACKBONE.NAME
 #     url = clip._MODELS[backbone_name]
@@ -56,11 +57,11 @@ def load_clip_to_cpu(cfg):
 class TextEncoder(nn.Module):
     def __init__(self, clip_model):
         super().__init__()
-        #self.transformer = clip_model.transformer
+        # self.transformer = clip_model.transformer
         self.transformer = clip_model.bert.encoder
-        #self.positional_embedding = clip_model.positional_embedding
+        # self.positional_embedding = clip_model.positional_embedding
         self.positional_embedding = clip_model.bert.embeddings.position_embeddings.weight
-        #self.ln_final = clip_model.ln_final
+        # self.ln_final = clip_model.ln_final
         self.text_projection = clip_model.text_projection
         self.dtype = clip_model.dtype
 
@@ -68,21 +69,22 @@ class TextEncoder(nn.Module):
         print(prompts.shape)
         print(self.positional_embedding.shape)
         x = prompts + self.positional_embedding.type(self.dtype)
-        x = x.permute(1, 0, 2)  # NLD -> LND
 
-        # N, L, D = prompts.shape
-        # attention_mask = torch.ones((N, L)) # 100 x 512
-        # extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        # extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        N, L, D = x.shape
+
+        attention_mask = torch.zeros((N, L)).to(torch.device('cuda:0'))  # 100 x 512
+        attention_mask[:, : 20] = 1.0
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2) # 100 x 1 x 1 x 512
+        extended_attention_mask = extended_attention_mask.to(dtype=next(self.transformer.parameters()).dtype) # fp16 compatibility
+        extended_attention_mask = (1.0 - extended_attention_mask) * -1.0
         # head_mask = [None] * 12
 
-        x = self.transformer(x)[0] # LND
+        x = self.transformer(x, attention_mask=extended_attention_mask)[0]  # LND
         # x = self.transformer(x)
 
-        x = x.permute(1, 0, 2)  # LND -> NLD
         # x = self.ln_final(x).type(self.dtype)
 
-        #x.shape = [batch_size, n_ctx, transformer.width]
+        # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
@@ -97,7 +99,7 @@ class PromptLearner(nn.Module):
         ctx_init = cfg.TRAINER.COOP.CTX_INIT
         dtype = clip_model.dtype
         ##### !!!!!
-        #ctx_dim = clip_model.ln_final.weight.shape[0]
+        # ctx_dim = clip_model.ln_final.weight.shape[0]
         ctx_dim = 768
         clip_imsize = clip_model.visual.input_resolution
         cfg_imsize = cfg.INPUT.SIZE[0]
@@ -110,9 +112,9 @@ class PromptLearner(nn.Module):
             prompt = utils.tokenize(ctx_init)
             with torch.no_grad():
                 #############!!!
-                #embedding = clip_model.token_embedding(prompt).type(dtype)
+                # embedding = clip_model.token_embedding(prompt).type(dtype)
                 embedding = clip_model.bert.embeddings(prompt).type(dtype)
-            ctx_vectors = embedding[0, 1 : 1 + n_ctx, :]
+            ctx_vectors = embedding[0, 1: 1 + n_ctx, :]
             prompt_prefix = ctx_init
 
         else:
@@ -132,27 +134,28 @@ class PromptLearner(nn.Module):
         self.ctx = nn.Parameter(ctx_vectors)  # to be optimized
 
         classnames = [name.replace("_", " ") for name in classnames]
-        #name_lens = [len(_tokenizer.encode(name)) for name in classnames]
+        # name_lens = [len(_tokenizer.encode(name)) for name in classnames]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
 
-        #tokenized_prompts = torch.cat([utils.tokenize(p) for p in prompts])
+        # tokenized_prompts = torch.cat([utils.tokenize(p) for p in prompts])
         # 512 is used to match bert positional embedding size
         # tokenized_prompts = torch.cat([utils.tokenize(p, context_length=52) for p in prompts]).to(torch.device('cuda:0'))
-        tokenized_prompts = torch.cat([utils.tokenize(p, context_length=512) for p in prompts]).to(torch.device('cuda:0'))
+        tokenized_prompts = torch.cat([utils.tokenize(p, context_length=512) for p in prompts]).to(
+            torch.device('cuda:0'))
         with torch.no_grad():
-            #embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
+            # embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
             embedding = clip_model.bert.embeddings(tokenized_prompts).type(dtype)
 
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
         # those computed using the current class names
         self.register_buffer("token_prefix", embedding[:, :1, :])  # SOS
-        self.register_buffer("token_suffix", embedding[:, 1 + n_ctx :, :])  # CLS, EOS
+        self.register_buffer("token_suffix", embedding[:, 1 + n_ctx:, :])  # CLS, EOS
 
         self.n_cls = n_cls
         self.n_ctx = n_ctx
         self.tokenized_prompts = tokenized_prompts  # torch.Tensor
-        #self.name_lens = name_lens # We won't use this!!!!!
+        # self.name_lens = name_lens # We won't use this!!!!!
 
         self.class_token_position = cfg.TRAINER.COOP.CLASS_TOKEN_POSITION
 
@@ -168,7 +171,7 @@ class PromptLearner(nn.Module):
             prompts = torch.cat(
                 [
                     prefix,  # (n_cls, 1, dim)
-                    ctx,     # (n_cls, n_ctx, dim)
+                    ctx,  # (n_cls, n_ctx, dim)
                     suffix,  # (n_cls, *, dim)
                 ],
                 dim=1,
@@ -179,18 +182,18 @@ class PromptLearner(nn.Module):
             prompts = []
             for i in range(self.n_cls):
                 name_len = self.name_lens[i]
-                prefix_i = prefix[i : i + 1, :, :]
-                class_i = suffix[i : i + 1, :name_len, :]
-                suffix_i = suffix[i : i + 1, name_len:, :]
-                ctx_i_half1 = ctx[i : i + 1, :half_n_ctx, :]
-                ctx_i_half2 = ctx[i : i + 1, half_n_ctx:, :]
+                prefix_i = prefix[i: i + 1, :, :]
+                class_i = suffix[i: i + 1, :name_len, :]
+                suffix_i = suffix[i: i + 1, name_len:, :]
+                ctx_i_half1 = ctx[i: i + 1, :half_n_ctx, :]
+                ctx_i_half2 = ctx[i: i + 1, half_n_ctx:, :]
                 prompt = torch.cat(
                     [
-                        prefix_i,     # (1, 1, dim)
+                        prefix_i,  # (1, 1, dim)
                         ctx_i_half1,  # (1, n_ctx//2, dim)
-                        class_i,      # (1, name_len, dim)
+                        class_i,  # (1, name_len, dim)
                         ctx_i_half2,  # (1, n_ctx//2, dim)
-                        suffix_i,     # (1, *, dim)
+                        suffix_i,  # (1, *, dim)
                     ],
                     dim=1,
                 )
@@ -201,15 +204,15 @@ class PromptLearner(nn.Module):
             prompts = []
             for i in range(self.n_cls):
                 name_len = self.name_lens[i]
-                prefix_i = prefix[i : i + 1, :, :]
-                class_i = suffix[i : i + 1, :name_len, :]
-                suffix_i = suffix[i : i + 1, name_len:, :]
-                ctx_i = ctx[i : i + 1, :, :]
+                prefix_i = prefix[i: i + 1, :, :]
+                class_i = suffix[i: i + 1, :name_len, :]
+                suffix_i = suffix[i: i + 1, name_len:, :]
+                ctx_i = ctx[i: i + 1, :, :]
                 prompt = torch.cat(
                     [
                         prefix_i,  # (1, 1, dim)
-                        class_i,   # (1, name_len, dim)
-                        ctx_i,     # (1, n_ctx, dim)
+                        class_i,  # (1, name_len, dim)
+                        ctx_i,  # (1, n_ctx, dim)
                         suffix_i,  # (1, *, dim)
                     ],
                     dim=1,
@@ -266,7 +269,7 @@ class CoOp(TrainerX):
 
         print(f"Loading CLIP (backbone: {cfg.MODEL.BACKBONE.NAME})")
         clip_model = load_clip_to_cpu(cfg)
-        
+
         if cfg.TRAINER.COOP.PREC == "fp32" or cfg.TRAINER.COOP.PREC == "amp":
             # CLIP's default precision is fp16
             clip_model.float()
@@ -299,7 +302,7 @@ class CoOp(TrainerX):
 
     def forward_backward(self, batch):
         image, label = self.parse_batch_train(batch)
-        
+
         prec = self.cfg.TRAINER.COOP.PREC
         if prec == "amp":
             with autocast():
