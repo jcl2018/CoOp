@@ -66,8 +66,6 @@ class TextEncoder(nn.Module):
         self.dtype = clip_model.dtype
 
     def forward(self, prompts, tokenized_prompts):
-        print(prompts.shape)
-        print(self.positional_embedding.shape)
         x = prompts + self.positional_embedding.type(self.dtype)
 
         N, L, D = x.shape
