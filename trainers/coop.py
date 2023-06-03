@@ -10,26 +10,45 @@ from dassl.metrics import compute_accuracy
 from dassl.utils import load_pretrained_weights, load_checkpoint
 from dassl.optim import build_optimizer, build_lr_scheduler
 
-from clip import clip
-from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+# from clip import clip
+# from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+
+from cn_clip.clip import utils
+from cn_clip.clip.bert_tokenizer import FullTokenizer as _Tokenizer
 
 _tokenizer = _Tokenizer()
+
+# def load_clip_to_cpu(cfg):
+#     backbone_name = cfg.MODEL.BACKBONE.NAME
+#     url = clip._MODELS[backbone_name]
+#     model_path = clip._download(url)
+#     try:
+#         # loading JIT archive
+#         model = torch.jit.load(model_path, map_location="cpu").eval()
+#         state_dict = None
+#     except RuntimeError:
+#         state_dict = torch.load(model_path, map_location="cpu")
+#     model = clip.build_model(state_dict or model.state_dict())
+#     print("="*50)
+#     print(model)
+#     print("="*50)
+#     return model
 
 
 def load_clip_to_cpu(cfg):
     backbone_name = cfg.MODEL.BACKBONE.NAME
-    url = clip._MODELS[backbone_name]
-    model_path = clip._download(url)
+    # url = utils._MODELS[backbone_name]
+    # model_path = utils._download(url, "E:\github\others_fork\CoOp\model")
 
-    try:
-        # loading JIT archive
-        model = torch.jit.load(model_path, map_location="cpu").eval()
-        state_dict = None
+    model, image_transformation = utils.load_from_name(backbone_name)
 
-    except RuntimeError:
-        state_dict = torch.load(model_path, map_location="cpu")
-
-    model = clip.build_model(state_dict or model.state_dict())
+    # try:
+    #     # loading JIT archive
+    #     model = torch.jit.load(model_path, map_location="cpu").eval()
+    #     state_dict = None
+    #
+    # except RuntimeError:
+    #     state_dict = torch.load(model_path, map_location="cpu")
 
     return model
 
@@ -37,20 +56,33 @@ def load_clip_to_cpu(cfg):
 class TextEncoder(nn.Module):
     def __init__(self, clip_model):
         super().__init__()
-        self.transformer = clip_model.transformer
-        self.positional_embedding = clip_model.positional_embedding
-        self.ln_final = clip_model.ln_final
+        #self.transformer = clip_model.transformer
+        self.transformer = clip_model.bert.encoder
+        #self.positional_embedding = clip_model.positional_embedding
+        self.positional_embedding = clip_model.bert.embeddings.position_embeddings.weight
+        #self.ln_final = clip_model.ln_final
         self.text_projection = clip_model.text_projection
         self.dtype = clip_model.dtype
 
     def forward(self, prompts, tokenized_prompts):
+        print(prompts.shape)
+        print(self.positional_embedding.shape)
         x = prompts + self.positional_embedding.type(self.dtype)
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        x = self.ln_final(x).type(self.dtype)
 
-        # x.shape = [batch_size, n_ctx, transformer.width]
+        # N, L, D = prompts.shape
+        # attention_mask = torch.ones((N, L)) # 100 x 512
+        # extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        # extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        # head_mask = [None] * 12
+
+        x = self.transformer(x)[0] # LND
+        # x = self.transformer(x)
+
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        # x = self.ln_final(x).type(self.dtype)
+
+        #x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
@@ -64,7 +96,9 @@ class PromptLearner(nn.Module):
         n_ctx = cfg.TRAINER.COOP.N_CTX
         ctx_init = cfg.TRAINER.COOP.CTX_INIT
         dtype = clip_model.dtype
-        ctx_dim = clip_model.ln_final.weight.shape[0]
+        ##### !!!!!
+        #ctx_dim = clip_model.ln_final.weight.shape[0]
+        ctx_dim = 768
         clip_imsize = clip_model.visual.input_resolution
         cfg_imsize = cfg.INPUT.SIZE[0]
         assert cfg_imsize == clip_imsize, f"cfg_imsize ({cfg_imsize}) must equal to clip_imsize ({clip_imsize})"
@@ -73,9 +107,11 @@ class PromptLearner(nn.Module):
             # use given words to initialize context vectors
             ctx_init = ctx_init.replace("_", " ")
             n_ctx = len(ctx_init.split(" "))
-            prompt = clip.tokenize(ctx_init)
+            prompt = utils.tokenize(ctx_init)
             with torch.no_grad():
-                embedding = clip_model.token_embedding(prompt).type(dtype)
+                #############!!!
+                #embedding = clip_model.token_embedding(prompt).type(dtype)
+                embedding = clip_model.bert.embeddings(prompt).type(dtype)
             ctx_vectors = embedding[0, 1 : 1 + n_ctx, :]
             prompt_prefix = ctx_init
 
@@ -96,12 +132,16 @@ class PromptLearner(nn.Module):
         self.ctx = nn.Parameter(ctx_vectors)  # to be optimized
 
         classnames = [name.replace("_", " ") for name in classnames]
-        name_lens = [len(_tokenizer.encode(name)) for name in classnames]
+        #name_lens = [len(_tokenizer.encode(name)) for name in classnames]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
 
-        tokenized_prompts = torch.cat([clip.tokenize(p) for p in prompts])
+        #tokenized_prompts = torch.cat([utils.tokenize(p) for p in prompts])
+        # 512 is used to match bert positional embedding size
+        # tokenized_prompts = torch.cat([utils.tokenize(p, context_length=52) for p in prompts]).to(torch.device('cuda:0'))
+        tokenized_prompts = torch.cat([utils.tokenize(p, context_length=512) for p in prompts]).to(torch.device('cuda:0'))
         with torch.no_grad():
-            embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
+            #embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
+            embedding = clip_model.bert.embeddings(tokenized_prompts).type(dtype)
 
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
@@ -112,7 +152,8 @@ class PromptLearner(nn.Module):
         self.n_cls = n_cls
         self.n_ctx = n_ctx
         self.tokenized_prompts = tokenized_prompts  # torch.Tensor
-        self.name_lens = name_lens
+        #self.name_lens = name_lens # We won't use this!!!!!
+
         self.class_token_position = cfg.TRAINER.COOP.CLASS_TOKEN_POSITION
 
     def forward(self):

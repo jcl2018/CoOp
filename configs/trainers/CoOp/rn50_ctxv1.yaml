@@ -30,4 +30,4 @@ MODEL:
 
 TRAINER:
   COOP:
-    CTX_INIT: "a photo of a"
+    CTX_INIT: "一张 的 图片"
