@@ -88,9 +88,10 @@ class TextEncoder(nn.Module):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
-        print(tokenized_prompts.detach().cpu().numpy()[:30])
-        print(tokenized_prompts.argmax(dim=-1))
-        x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
+        # print(tokenized_prompts.detach().cpu().numpy()[:30])
+        # print(tokenized_prompts.argmax(dim=-1))
+        x = x[torch.arange(x.shape[0]), 0] @ self.text_projection
+        #x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
         return x
 
@@ -232,6 +233,13 @@ class PromptLearner(nn.Module):
 
 
 class CustomCLIP(nn.Module):
+    """
+    Main model class for custom clip based on clip_model passed in.
+    It consists of three major parts:
+    (1) Image encoder (self.image_encoder), which is the visual model from clip_model
+    (2) Text encoder (self.
+
+    """
     def __init__(self, cfg, classnames, clip_model):
         super().__init__()
         self.prompt_learner = PromptLearner(cfg, classnames, clip_model)
