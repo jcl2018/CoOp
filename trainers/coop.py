@@ -190,7 +190,7 @@ class PromptLearner(nn.Module):
 
     def forward(self):
         ctx = self.ctx
-        print("ctx vector:\n ", self.ctx)
+        #print("ctx vector:\n ", self.ctx)
         if ctx.dim() == 2:
             ctx = ctx.unsqueeze(0).expand(self.n_cls, -1, -1)
 

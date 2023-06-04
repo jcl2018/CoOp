@@ -1,0 +1,1 @@
+python train.py --root data --seed 1 --trainer CoOp --dataset-config-file configs/datasets/caltech101.yaml --config-file configs/trainers/CoOp/rn50.yaml --output-dir output_dir
