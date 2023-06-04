@@ -84,6 +84,7 @@ class TextEncoder(nn.Module):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
+        print(tokenized_prompts.argmax(dim=-1))
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
         return x
@@ -233,14 +234,6 @@ class CustomCLIP(nn.Module):
         self.text_encoder = TextEncoder(clip_model)
         self.logit_scale = clip_model.logit_scale
         self.dtype = clip_model.dtype
-
-        for k, v in self.image_encoder.named_parameters():
-            v.requires_grad = False
-            # freeze bn running mean and variance
-            for m in self.image_encoder.modules():
-                if isinstance(m, torch.nn.BatchNorm2d):
-                    m.eval()
-
 
     def forward(self, image):
         image_features = self.image_encoder(image.type(self.dtype))
