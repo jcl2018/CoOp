@@ -77,15 +77,16 @@ class TextEncoder(nn.Module):
 
         # Reference: BertEmbeddings.forward()
 
-        # prompst: output of "word" embedding
+        # prompts: output of "word" embedding
+        # tokenized_prompts: same as "input_ids" in BERT
         words_embeddings = prompts # This is done by prompts_learner
 
         seq_length = words_embeddings.size(1)
         position_ids = torch.arange(seq_length, dtype=torch.long, device=words_embeddings.device)
-        position_ids = position_ids.unsqueeze(0).expand_as(words_embeddings)
-        position_embeddings = self.position_embeddings(position_ids)
+        position_ids = position_ids.unsqueeze(0).expand_as(tokenized_prompts)
+        position_embeddings = self.positional_embedding(position_ids)
 
-        token_type_ids = torch.zeros_like(words_embeddings)
+        token_type_ids = torch.zeros_like(tokenized_prompts)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
         embeddings = words_embeddings + position_embeddings + token_type_embeddings
