@@ -133,15 +133,15 @@ class PromptLearner(nn.Module):
 
         classnames = [name.replace("_", " ") for name in classnames]
         # name_lens = [len(_tokenizer.encode(name)) for name in classnames]
-        prompts = [prompt_prefix + " " + name + "." for name in classnames]
+        prompts = [prompt_prefix + " " + name + "。" for name in classnames]
 
         # tokenized_prompts = torch.cat([utils.tokenize(p) for p in prompts])
         # 512 is used to match bert positional embedding size
         # tokenized_prompts = torch.cat([utils.tokenize(p, context_length=52) for p in prompts]).to(torch.device('cuda:0'))
         tokenized_prompts = torch.cat([utils.tokenize(p, context_length=512) for p in prompts]).to(
             torch.device('cuda:0'))
+
         with torch.no_grad():
-            # embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
             embedding = clip_model.bert.embeddings(tokenized_prompts).type(dtype)
 
         # These token vectors will be saved when in save_model(),
