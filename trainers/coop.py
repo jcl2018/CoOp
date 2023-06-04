@@ -234,6 +234,14 @@ class CustomCLIP(nn.Module):
         self.logit_scale = clip_model.logit_scale
         self.dtype = clip_model.dtype
 
+        for k, v in self.image_encoder.named_parameters():
+            v.requires_grad = False
+            # freeze bn running mean and variance
+            for m in self.image_encoder.modules():
+                if isinstance(m, torch.nn.BatchNorm2d):
+                    m.eval()
+
+
     def forward(self, image):
         image_features = self.image_encoder(image.type(self.dtype))
 
@@ -316,15 +324,15 @@ class CoOp(TrainerX):
             self.model_backward_and_update(loss)
 
         # For debug...
-        if self.cfg.VERBOSE:
-            _, pred = output.topk(1, 1, True, True)
-            pred = pred.t()
-            correct = pred.eq(label.view(1, -1).expand_as(pred))
-            correct_k = correct[:1].view(-1).float().sum(0, keepdim=True)
-
-            print("output:\n", output)
-            print("pred:\n", pred)
-            print("correct_top1:\n", correct_k)
+        # if self.cfg.VERBOSE:
+        #     _, pred = output.topk(1, 1, True, True)
+        #     pred = pred.t()
+        #     correct = pred.eq(label.view(1, -1).expand_as(pred))
+        #     correct_k = correct[:1].view(-1).float().sum(0, keepdim=True)
+        #
+        #     print("output:\n", output)
+        #     print("pred:\n", pred)
+        #     print("correct_top1:\n", correct_k)
 
         loss_summary = {
             "loss": loss.item(),
