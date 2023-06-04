@@ -105,8 +105,8 @@ class TextEncoder(nn.Module):
         extended_attention_mask = (1.0 - extended_attention_mask) * -100000.0
         # head_mask = [None] * 12
 
-        x = self.transformer(x, attention_mask=extended_attention_mask)[0]  # LND
-        # x = self.transformer(x)
+        with torch.no_grad():
+            x = self.transformer(x, attention_mask=extended_attention_mask)[0]  # LND
 
         # x = self.ln_final(x).type(self.dtype)
 
@@ -172,8 +172,8 @@ class PromptLearner(nn.Module):
         tokenized_prompts = torch.cat([utils.tokenize(p, context_length=512) for p in prompts]).to(
             torch.device('cuda:0'))
 
-        with torch.no_grad():
-            embedding = clip_model.bert.embeddings.word_embeddings(tokenized_prompts).type(dtype)
+        #with torch.no_grad():
+        embedding = clip_model.bert.embeddings.word_embeddings(tokenized_prompts).type(dtype)
 
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
@@ -274,7 +274,8 @@ class CustomCLIP(nn.Module):
         self.dtype = clip_model.dtype
 
     def forward(self, image):
-        image_features = self.image_encoder(image.type(self.dtype))
+        with torch.no_grad():
+            image_features = self.image_encoder(image.type(self.dtype))
 
         prompts = self.prompt_learner()
         tokenized_prompts = self.tokenized_prompts
@@ -314,10 +315,11 @@ class CoOp(TrainerX):
         print("Building custom CLIP")
         self.model = CustomCLIP(cfg, classnames, clip_model)
 
-        print("Turning off gradients in both the image and the text encoder")
-        for name, param in self.model.named_parameters():
-            if "prompt_learner" not in name:
-                param.requires_grad_(False)
+        # C.J note: we will explicitly turn them off in CustomClip
+        # print("Turning off gradients in both the image and the text encoder")
+        # for name, param in self.model.named_parameters():
+        #     if "prompt_learner" not in name:
+        #         param.requires_grad_(False)
 
         if cfg.MODEL.INIT_WEIGHTS:
             load_pretrained_weights(self.model.prompt_learner, cfg.MODEL.INIT_WEIGHTS)
