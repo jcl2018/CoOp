@@ -63,16 +63,39 @@ class TextEncoder(nn.Module):
         super().__init__()
         # self.transformer = clip_model.transformer
         self.transformer = clip_model.bert.encoder
+        self.embedding_layer = clip_model.bert.embeddings
+
         # self.positional_embedding = clip_model.positional_embedding
-        self.positional_embedding = clip_model.bert.embeddings.position_embeddings.weight
+        self.positional_embedding = self.embedding_layer.position_embeddings
+        self.token_type_embeddings = self.embedding_layer.token_type_embeddings
+
         # self.ln_final = clip_model.ln_final
         self.text_projection = clip_model.text_projection
         self.dtype = clip_model.dtype
 
     def forward(self, prompts, tokenized_prompts):
-        x = prompts + self.positional_embedding.type(self.dtype)
 
+        # Reference: BertEmbeddings.forward()
+
+        # prompst: output of "word" embedding
+        words_embeddings = prompts # This is done by prompts_learner
+
+        seq_length = words_embeddings.size(1)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=words_embeddings.device)
+        position_ids = position_ids.unsqueeze(0).expand_as(words_embeddings)
+        position_embeddings = self.position_embeddings(position_ids)
+
+        token_type_ids = torch.zeros_like(words_embeddings)
+        token_type_embeddings = self.token_type_embeddings(token_type_ids)
+
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
+        embeddings = self.embedding_layer.LayerNorm(embeddings)
+        embeddings = self.embedding_layer.dropout(embeddings)
+
+        x = embeddings
         N, L, D = x.shape
+        # Embedding done!
+
 
         attention_mask = torch.zeros((N, L)).to(torch.device('cuda:0'))  # 100 x 512
         attention_mask[:, : 20] = 1.0
@@ -149,7 +172,7 @@ class PromptLearner(nn.Module):
             torch.device('cuda:0'))
 
         with torch.no_grad():
-            embedding = clip_model.bert.embeddings(tokenized_prompts).type(dtype)
+            embedding = clip_model.bert.embeddings.word_embeddings(tokenized_prompts).type(dtype)
 
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
