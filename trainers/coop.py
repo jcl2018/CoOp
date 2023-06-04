@@ -315,6 +315,17 @@ class CoOp(TrainerX):
             loss = F.cross_entropy(output, label)
             self.model_backward_and_update(loss)
 
+        # For debug...
+        if self.cfg.VERBOSE:
+            _, pred = output.topk(1, 1, True, True)
+            pred = pred.t()
+            correct = pred.eq(label.view(1, -1).expand_as(pred))
+            correct_k = correct[:1].view(-1).float().sum(0, keepdim=True)
+
+            print("output:\n", output)
+            print("pred:\n", pred)
+            print("correct_top1:\n", correct_k)
+
         loss_summary = {
             "loss": loss.item(),
             "acc": compute_accuracy(output, label)[0].item(),
