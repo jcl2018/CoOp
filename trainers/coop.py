@@ -84,6 +84,7 @@ class TextEncoder(nn.Module):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
+        print(tokenized_prompts)
         print(tokenized_prompts.argmax(dim=-1))
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
@@ -131,6 +132,7 @@ class PromptLearner(nn.Module):
         print(f"Number of context words (tokens): {n_ctx}")
 
         self.ctx = nn.Parameter(ctx_vectors)  # to be optimized
+        print("ctx vector:\n ", self.ctx)
 
         classnames = [name.replace("_", " ") for name in classnames]
         # name_lens = [len(_tokenizer.encode(name)) for name in classnames]
