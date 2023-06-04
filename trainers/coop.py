@@ -1,5 +1,9 @@
 import os.path as osp
 
+import sys
+import numpy
+numpy.set_printoptions(threshold=sys.maxsize)
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -84,7 +88,7 @@ class TextEncoder(nn.Module):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
-        print(tokenized_prompts[:30])
+        print(tokenized_prompts.detach().cpu().numpy()[:30])
         print(tokenized_prompts.argmax(dim=-1))
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
